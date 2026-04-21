@@ -1,0 +1,6 @@
+@SkyBooker.AuthService_HostAddress = http://localhost:5208
+
+GET {{SkyBooker.AuthService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
