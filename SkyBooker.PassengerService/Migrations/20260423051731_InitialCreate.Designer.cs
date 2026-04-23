@@ -12,7 +12,7 @@ using SkyBooker.PassengerService.Context;
 namespace SkyBooker.PassengerService.Migrations
 {
     [DbContext(typeof(PassengerDbContext))]
-    [Migration("20260423050811_InitialCreate")]
+    [Migration("20260423051731_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
