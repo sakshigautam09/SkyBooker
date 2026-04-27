@@ -9,6 +9,7 @@ using SkyBooker.AuthService.DTOs;
 using SkyBooker.AuthService.Entities;
 using SkyBooker.AuthService.Enums;
 using SkyBooker.AuthService.Repositories;
+using SkyBooker.AuthService.Services.Redis;
 
 namespace SkyBooker.AuthService.Services;
 
@@ -17,12 +18,14 @@ public class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly IConfiguration _configuration;
     private readonly AuthDbContext _context;
+    private readonly IRedisTokenService _redisTokenService;
 
-    public AuthService(IUserRepository userRepository, IConfiguration configuration, AuthDbContext context)
+    public AuthService(IUserRepository userRepository, IConfiguration configuration, AuthDbContext context, IRedisTokenService redisTokenService)
     {
         _userRepository = userRepository;
         _configuration = configuration;
         _context = context;
+        _redisTokenService = redisTokenService;
     }
 
     // ─── Register ────────────────────────────────────────────────────────────
@@ -90,6 +93,9 @@ public class AuthService : IAuthService
         var (accessToken, expiresAt) = GenerateJwtToken(user);
         var refreshToken = await CreateRefreshTokenAsync(user.UserId);
 
+        // Store refresh token in Redis for fast validation (30-day TTL)
+        await _redisTokenService.StoreRefreshTokenAsync(user.UserId, refreshToken, TimeSpan.FromDays(30));
+
         return BuildLoginResponse(user, accessToken, expiresAt, refreshToken);
     }
 
@@ -97,6 +103,7 @@ public class AuthService : IAuthService
 
     public async Task LogoutAsync(int userId, string refreshToken)
     {
+        // 1. Revoke refresh token in DB
         var token = await _context.RefreshTokens
             .FirstOrDefaultAsync(rt => rt.UserId == userId && rt.Token == refreshToken && !rt.IsRevoked);
 
@@ -105,6 +112,9 @@ public class AuthService : IAuthService
             token.IsRevoked = true;
             await _context.SaveChangesAsync();
         }
+
+        // 2. Remove refresh token from Redis
+        await _redisTokenService.RevokeRefreshTokenAsync(userId, refreshToken);
     }
 
     // ─── ValidateToken ───────────────────────────────────────────────────────
@@ -219,6 +229,9 @@ public class AuthService : IAuthService
             .ToListAsync();
         tokens.ForEach(t => t.IsRevoked = true);
         await _context.SaveChangesAsync();
+
+        // Revoke all Redis refresh tokens for this user
+        await _redisTokenService.RevokeAllRefreshTokensAsync(userId);
     }
 
     // ─── GetAllUsers ──────────────────────────────────────────────────────────

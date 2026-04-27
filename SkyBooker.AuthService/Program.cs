@@ -8,6 +8,9 @@ using SkyBooker.AuthService.Data;
 using SkyBooker.AuthService.Repositories;
 using SkyBooker.AuthService.Services;
 using SkyBooker.AuthService.Validators;
+using SkyBooker.AuthService.Services.Redis;
+using StackExchange.Redis;
+using SkyBooker.AuthService.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -103,6 +106,13 @@ if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(goo
 
 builder.Services.AddAuthorization();
 
+// ─── Redis ───────────────────────────────────────────────────────────────────
+var redisConnection = builder.Configuration.GetConnectionString("Redis")
+    ?? throw new InvalidOperationException("Redis connection string is not configured.");
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddScoped<IRedisTokenService, RedisTokenService>();
+
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -120,6 +130,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseMiddleware<TokenBlacklistMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
