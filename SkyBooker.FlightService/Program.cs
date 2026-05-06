@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +12,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+        policy.WithOrigins("http://localhost:4200")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 
 // ─── Swagger UI ───────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -78,7 +88,10 @@ builder.Services
             ValidateAudience = true,
             ValidAudience = builder.Configuration["Jwt:Audience"],
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            // ── Fix: map long URI claim names to standard names ──────────────
+            NameClaimType = ClaimTypes.Name,
+            RoleClaimType = ClaimTypes.Role
         };
     });
 
@@ -100,6 +113,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

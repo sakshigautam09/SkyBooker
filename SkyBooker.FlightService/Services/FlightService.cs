@@ -22,18 +22,18 @@ public class FlightService : IFlightService
 
         var flight = new Flight
         {
-            FlightNumber = dto.FlightNumber,
-            AirlineId = dto.AirlineId,
-            OriginAirportCode = dto.OriginAirportCode.ToUpper(),
+            FlightNumber           = dto.FlightNumber,
+            AirlineId              = dto.AirlineId,
+            OriginAirportCode      = dto.OriginAirportCode.ToUpper(),
             DestinationAirportCode = dto.DestinationAirportCode.ToUpper(),
-            DepartureTime = dto.DepartureTime,
-            ArrivalTime = dto.ArrivalTime,
-            DurationMinutes = (int)(dto.ArrivalTime - dto.DepartureTime).TotalMinutes,
-            AircraftType = dto.AircraftType,
-            TotalSeats = dto.TotalSeats,
-            AvailableSeats = dto.TotalSeats,
-            BasePrice = dto.BasePrice,
-            Status = FlightStatus.Scheduled
+            DepartureTime          = DateTime.SpecifyKind(dto.DepartureTime, DateTimeKind.Utc),
+            ArrivalTime            = DateTime.SpecifyKind(dto.ArrivalTime,   DateTimeKind.Utc),
+            DurationMinutes        = (int)(dto.ArrivalTime - dto.DepartureTime).TotalMinutes,
+            AircraftType           = dto.AircraftType,
+            TotalSeats             = dto.TotalSeats,
+            AvailableSeats         = dto.TotalSeats,
+            BasePrice              = dto.BasePrice,
+            Status                 = FlightStatus.Scheduled
         };
 
         var created = await _flightRepository.AddAsync(flight);
@@ -72,7 +72,7 @@ public class FlightService : IFlightService
         return new Dictionary<string, IList<FlightResponseDto>>
         {
             ["outbound"] = outbound.Select(MapToDto).ToList(),
-            ["return"] = returnFlights.Select(MapToDto).ToList()
+            ["return"]   = returnFlights.Select(MapToDto).ToList()
         };
     }
 
@@ -81,10 +81,14 @@ public class FlightService : IFlightService
         var flight = await _flightRepository.FindByFlightIdAsync(flightId)
             ?? throw new KeyNotFoundException($"Flight {flightId} not found.");
 
-        if (dto.DepartureTime.HasValue) flight.DepartureTime = dto.DepartureTime.Value;
-        if (dto.ArrivalTime.HasValue) flight.ArrivalTime = dto.ArrivalTime.Value;
-        if (!string.IsNullOrEmpty(dto.AircraftType)) flight.AircraftType = dto.AircraftType;
-        if (dto.BasePrice.HasValue) flight.BasePrice = dto.BasePrice.Value;
+        if (dto.DepartureTime.HasValue)
+            flight.DepartureTime = DateTime.SpecifyKind(dto.DepartureTime.Value, DateTimeKind.Utc);
+        if (dto.ArrivalTime.HasValue)
+            flight.ArrivalTime = DateTime.SpecifyKind(dto.ArrivalTime.Value, DateTimeKind.Utc);
+        if (!string.IsNullOrEmpty(dto.AircraftType))
+            flight.AircraftType = dto.AircraftType;
+        if (dto.BasePrice.HasValue)
+            flight.BasePrice = dto.BasePrice.Value;
 
         if (dto.DepartureTime.HasValue || dto.ArrivalTime.HasValue)
             flight.DurationMinutes = (int)(flight.ArrivalTime - flight.DepartureTime).TotalMinutes;
@@ -146,18 +150,18 @@ public class FlightService : IFlightService
 
     private static FlightResponseDto MapToDto(Flight f) => new()
     {
-        FlightId = f.FlightId,
-        FlightNumber = f.FlightNumber,
-        AirlineId = f.AirlineId,
-        OriginAirportCode = f.OriginAirportCode,
+        FlightId               = f.FlightId,
+        FlightNumber           = f.FlightNumber,
+        AirlineId              = f.AirlineId,
+        OriginAirportCode      = f.OriginAirportCode,
         DestinationAirportCode = f.DestinationAirportCode,
-        DepartureTime = f.DepartureTime,
-        ArrivalTime = f.ArrivalTime,
-        DurationMinutes = f.DurationMinutes,
-        Status = f.Status.ToString(),
-        AircraftType = f.AircraftType,
-        TotalSeats = f.TotalSeats,
-        AvailableSeats = f.AvailableSeats,
-        BasePrice = f.BasePrice
+        DepartureTime          = f.DepartureTime,
+        ArrivalTime            = f.ArrivalTime,
+        DurationMinutes        = f.DurationMinutes,
+        Status                 = f.Status.ToString(),
+        AircraftType           = f.AircraftType,
+        TotalSeats             = f.TotalSeats,
+        AvailableSeats         = f.AvailableSeats,
+        BasePrice              = f.BasePrice
     };
 }

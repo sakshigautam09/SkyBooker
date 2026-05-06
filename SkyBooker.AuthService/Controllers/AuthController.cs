@@ -23,16 +23,6 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>Register a new user</summary>
-    /// <remarks>
-    /// Role must be **Passenger** or **AirlineStaff**. Admin role cannot be self-assigned.
-    ///
-    /// Password rules:
-    /// - Minimum 8 characters
-    /// - At least 1 uppercase letter (A-Z)
-    /// - At least 1 lowercase letter (a-z)
-    /// - At least 1 digit (0-9)
-    /// - At least 1 special character (@$!%*?&amp;)
-    /// </remarks>
     [HttpPost("register")]
     [ProducesResponseType(typeof(RegisterResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -48,14 +38,21 @@ public class AuthController : ControllerBase
             var result = await _authService.RegisterAsync(dto);
             return CreatedAtAction(nameof(Register), new { id = result.UserId }, result);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, detail = ex.InnerException?.Message });
+        }
     }
 
     /// <summary>Login with email and password</summary>
-    /// <remarks>Returns an accessToken (JWT) and a refreshToken. Use the accessToken in the Authorize button above.</remarks>
     [HttpPost("login")]
     [ProducesResponseType(typeof(LoginResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -76,7 +73,6 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>Logout and revoke the refresh token</summary>
-    /// <remarks>Requires Bearer token in Authorize. Revokes the provided refresh token.</remarks>
     [HttpPost("logout")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -85,7 +81,6 @@ public class AuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
-
         await _authService.LogoutAsync(userId.Value, dto.RefreshToken);
         return NoContent();
     }
@@ -108,7 +103,6 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>Get the currently logged-in user's profile</summary>
-    /// <remarks>Click the Authorize button at the top and enter: **Bearer {accessToken}**</remarks>
     [HttpGet("profile")]
     [Authorize]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
@@ -117,7 +111,6 @@ public class AuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
-
         try
         {
             var profile = await _authService.GetUserByIdAsync(userId.Value);
@@ -130,7 +123,6 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>Update the currently logged-in user's profile</summary>
-    /// <remarks>Only provide the fields you want to update. Other fields remain unchanged.</remarks>
     [HttpPut("profile")]
     [Authorize]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
@@ -139,7 +131,6 @@ public class AuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
-
         try
         {
             var updated = await _authService.UpdateProfileAsync(userId.Value, dto);
@@ -151,12 +142,7 @@ public class AuthController : ControllerBase
         }
     }
 
-    /// <summary>Change password for the currently logged-in user</summary>
-    /// <remarks>
-    /// New password rules:
-    /// - Minimum 8 characters
-    /// - At least 1 uppercase, 1 lowercase, 1 digit, 1 special character (@$!%*?&amp;)
-    /// </remarks>
+    /// <summary>Change password</summary>
     [HttpPut("password")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -165,24 +151,16 @@ public class AuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
-
         try
         {
             await _authService.ChangePasswordAsync(userId.Value, dto);
             return NoContent();
         }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
+        catch (UnauthorizedAccessException ex) { return Unauthorized(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex)        { return NotFound(new { message = ex.Message }); }
     }
 
-    /// <summary>Deactivate the currently logged-in user's account</summary>
-    /// <remarks>This will also revoke all refresh tokens for the user.</remarks>
+    /// <summary>Deactivate account</summary>
     [HttpDelete("deactivate")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -191,41 +169,26 @@ public class AuthController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId is null) return Unauthorized();
-
         try
         {
             await _authService.DeactivateAccountAsync(userId.Value);
             return NoContent();
         }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { message = ex.Message });
-        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
     }
 
     /// <summary>Get all users — Admin only</summary>
-    /// <remarks>
-    /// Requires Admin role. Optionally filter by role: **Passenger**, **AirlineStaff**, **Admin**
-    /// </remarks>
     [HttpGet("users")]
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(IEnumerable<UserProfileDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAllUsers([FromQuery] string? role = null)
     {
         if (!string.IsNullOrWhiteSpace(role) && Enum.TryParse<UserRole>(role, ignoreCase: true, out var userRole))
-        {
-            var filtered = await _authService.GetAllUsersByRoleAsync(userRole);
-            return Ok(filtered);
-        }
-
-        var users = await _authService.GetAllUsersAsync();
-        return Ok(users);
+            return Ok(await _authService.GetAllUsersByRoleAsync(userRole));
+        return Ok(await _authService.GetAllUsersAsync());
     }
 
     /// <summary>Validate a JWT access token</summary>
-    /// <remarks>Returns the userId if the token is valid.</remarks>
     [HttpPost("validate")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -241,8 +204,6 @@ public class AuthController : ControllerBase
             return Unauthorized(new { valid = false, message = "Invalid or expired token." });
         }
     }
-
-    // ─── Helper ──────────────────────────────────────────────────────────────
 
     private int? GetCurrentUserId()
     {

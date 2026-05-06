@@ -1,9 +1,12 @@
 using System.Text;
+using System.Security.Claims;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SkyBooker.PaymentService.Context;
+using SkyBooker.PaymentService.Messaging.Publishers;
 using SkyBooker.PaymentService.Repositories;
 using SkyBooker.PaymentService.Services;
 
@@ -11,6 +14,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+        policy.WithOrigins("http://localhost:4200")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 
 // ─── Swagger UI ───────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -78,18 +90,40 @@ builder.Services
             ValidateAudience = true,
             ValidAudience = builder.Configuration["Jwt:Audience"],
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = ClaimTypes.Name,
+            RoleClaimType = ClaimTypes.Role
         };
     });
 
 builder.Services.AddAuthorization();
 
-// ─── HttpClient for inter-service calls (Booking Service) ─────────────────────
+// ─── HttpClient for inter-service calls ──────────────────────────────────────
 builder.Services.AddHttpClient();
+
+// ─── MassTransit + RabbitMQ ───────────────────────────────────────────────────
+builder.Services.AddMassTransit(x =>
+{
+    x.UsingRabbitMq((ctx, cfg) =>
+    {
+        var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
+        var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+        var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+
+        cfg.Host(host, "/", h =>
+        {
+            h.Username(username);
+            h.Password(password);
+        });
+
+        cfg.ConfigureEndpoints(ctx);
+    });
+});
 
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IPaymentEventPublisher, PaymentEventPublisher>();
 
 var app = builder.Build();
 
@@ -103,6 +137,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

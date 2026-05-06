@@ -1,17 +1,40 @@
 using System.Text;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using StackExchange.Redis;
 using SkyBooker.SeatService.BackgroundServices;
 using SkyBooker.SeatService.Context;
+using SkyBooker.SeatService.Messaging.Consumers;
 using SkyBooker.SeatService.Repositories;
 using SkyBooker.SeatService.Services;
+using SkyBooker.SeatService.Services.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+        policy.WithOrigins(
+                "http://localhost:4200",
+                "http://localhost:4201",
+                "http://localhost:5000",
+                "http://localhost:5001",
+                "http://localhost:5002",
+                "http://localhost:5003",
+                "http://localhost:5004",
+                "http://localhost:5005",
+                "http://localhost:5006",
+                "http://localhost:5007")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 
 // ─── Swagger UI ───────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -58,6 +81,12 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddDbContext<SeatDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// ─── Redis ───────────────────────────────────────────────────────────────────
+var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddScoped<ISeatHoldRedisService, SeatHoldRedisService>();
+
 // ─── JWT Authentication ───────────────────────────────────────────────────────
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("Jwt:Secret is not configured.");
@@ -85,13 +114,46 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// ─── MassTransit + RabbitMQ ───────────────────────────────────────────────────
+builder.Services.AddMassTransit(x =>
+{
+    x.AddConsumer<BookingCreatedConsumer>();
+    x.AddConsumer<BookingConfirmedConsumer>();
+    x.AddConsumer<BookingCancelledConsumer>();
+
+    x.UsingRabbitMq((ctx, cfg) =>
+    {
+        var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
+        var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+        var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+
+        cfg.Host(host, "/", h =>
+        {
+            h.Username(username);
+            h.Password(password);
+        });
+
+        cfg.ReceiveEndpoint("seat-booking-created", e =>
+            e.ConfigureConsumer<BookingCreatedConsumer>(ctx));
+
+        cfg.ReceiveEndpoint("seat-booking-confirmed", e =>
+            e.ConfigureConsumer<BookingConfirmedConsumer>(ctx));
+
+        cfg.ReceiveEndpoint("seat-booking-cancelled", e =>
+            e.ConfigureConsumer<BookingCancelledConsumer>(ctx));
+
+        cfg.ConfigureEndpoints(ctx);
+    });
+});
+
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<ISeatRepository, SeatRepository>();
 builder.Services.AddScoped<ISeatService, SeatService>();
 
-// ─── Background Service — releases expired seat holds every 2 minutes ─────────
+// ─── Background Service ───────────────────────────────────────────────────────
 builder.Services.AddHostedService<SeatHoldExpiryService>();
 
+// ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
@@ -104,6 +166,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAll");        // ✅ named policy, before UseAuthentication
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

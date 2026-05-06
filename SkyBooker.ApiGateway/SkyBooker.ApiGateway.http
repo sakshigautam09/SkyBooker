@@ -1,0 +1,6 @@
+@SkyBooker.ApiGateway_HostAddress = http://localhost:5028
+
+GET {{SkyBooker.ApiGateway_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
