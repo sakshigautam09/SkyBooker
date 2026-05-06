@@ -19,12 +19,17 @@ public class FlightRepository : IFlightRepository
 
     public async Task<IList<Flight>> FindByOriginDestDateAsync(
         string origin, string destination, DateTime date)
-        => await _context.Flights
+    {
+        var utcDate = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
+        var nextDay  = utcDate.AddDays(1);
+        return await _context.Flights
             .Where(f => f.OriginAirportCode == origin
                 && f.DestinationAirportCode == destination
-                && f.DepartureTime.Date == date.Date)
+                && f.DepartureTime >= utcDate
+                && f.DepartureTime < nextDay)
             .OrderBy(f => f.DepartureTime)
             .ToListAsync();
+    }
 
     public async Task<IList<Flight>> FindByAirlineIdAsync(int airlineId)
         => await _context.Flights
@@ -47,14 +52,19 @@ public class FlightRepository : IFlightRepository
 
     public async Task<IList<Flight>> FindAvailableFlightsAsync(
         string origin, string destination, DateTime date)
-        => await _context.Flights
+    {
+        var utcDate = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
+        var nextDay  = utcDate.AddDays(1);
+        return await _context.Flights
             .Where(f => f.OriginAirportCode == origin
                 && f.DestinationAirportCode == destination
-                && f.DepartureTime.Date == date.Date
+                && f.DepartureTime >= utcDate
+                && f.DepartureTime < nextDay
                 && f.AvailableSeats > 0
                 && f.Status != FlightStatus.Cancelled)
             .OrderBy(f => f.BasePrice)
             .ToListAsync();
+    }
 
     public async Task<int> CountByAirlineIdAsync(int airlineId)
         => await _context.Flights.CountAsync(f => f.AirlineId == airlineId);

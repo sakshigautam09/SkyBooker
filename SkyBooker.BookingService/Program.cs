@@ -1,16 +1,30 @@
 using System.Text;
+using System.Security.Claims;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SkyBooker.BookingService.Context;
+using SkyBooker.BookingService.Messaging.Consumers;
+using SkyBooker.BookingService.Messaging.Publishers;
 using SkyBooker.BookingService.Repositories;
+using SkyBooker.BookingService.Saga;
 using SkyBooker.BookingService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+        policy.WithOrigins("http://localhost:4200")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
 
 // ─── Swagger UI ───────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -78,15 +92,52 @@ builder.Services
             ValidateAudience = true,
             ValidAudience = builder.Configuration["Jwt:Audience"],
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = ClaimTypes.Name,
+            RoleClaimType = ClaimTypes.Role
         };
     });
 
 builder.Services.AddAuthorization();
 
+// ─── MassTransit + RabbitMQ ───────────────────────────────────────────────────
+builder.Services.AddMassTransit(x =>
+{
+    x.AddConsumer<PaymentCompletedConsumer>();
+    x.AddConsumer<PaymentFailedConsumer>();
+
+    x.AddSagaStateMachine<BookingSagaStateMachine, BookingSagaState>()
+        .InMemoryRepository();
+
+    x.UsingRabbitMq((ctx, cfg) =>
+    {
+        var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
+        var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+        var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+
+        cfg.Host(host, "/", h =>
+        {
+            h.Username(username);
+            h.Password(password);
+        });
+
+        cfg.ReceiveEndpoint("booking-payment-completed", e =>
+            e.ConfigureConsumer<PaymentCompletedConsumer>(ctx));
+
+        cfg.ReceiveEndpoint("booking-payment-failed", e =>
+            e.ConfigureConsumer<PaymentFailedConsumer>(ctx));
+
+        cfg.ReceiveEndpoint("booking-saga", e =>
+            e.ConfigureSaga<BookingSagaState>(ctx));
+
+        cfg.ConfigureEndpoints(ctx);
+    });
+});
+
 // ─── Application Services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IBookingEventPublisher, BookingEventPublisher>();
 
 var app = builder.Build();
 
@@ -100,6 +151,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAngular");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

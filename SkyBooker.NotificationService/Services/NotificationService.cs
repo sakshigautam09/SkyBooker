@@ -26,11 +26,13 @@ public class NotificationService : INotificationService
         ILogger<NotificationService> logger)
     {
         _notificationRepository = notificationRepository;
-        _configuration = configuration;
-        _logger = logger;
+        _configuration          = configuration;
+        _logger                 = logger;
 
         QuestPDF.Settings.License = LicenseType.Community;
     }
+
+    // ── Send Single Notification ──────────────────────────────────────────────
 
     public async Task<NotificationResponseDto> SendAsync(SendNotificationRequestDto dto)
     {
@@ -42,36 +44,42 @@ public class NotificationService : INotificationService
 
         var notification = new Notification
         {
-            RecipientId = dto.RecipientId,
-            Type = type,
-            Title = dto.Title,
-            Message = dto.Message,
-            Channel = channel,
+            RecipientId      = dto.RecipientId,
+            Type             = type,
+            Title            = dto.Title,
+            Message          = dto.Message,
+            Channel          = channel,
             RelatedBookingId = dto.RelatedBookingId,
-            RecipientEmail = dto.RecipientEmail,
-            RecipientPhone = dto.RecipientPhone,
-            IsRead = false,
-            SentAt = DateTime.UtcNow
+            RecipientEmail   = dto.RecipientEmail,
+            RecipientPhone   = dto.RecipientPhone,
+            IsRead           = false,
+            SentAt           = DateTime.UtcNow
         };
 
         var created = await _notificationRepository.CreateAsync(notification);
 
-        // Dispatch to the appropriate channel
+        // Dispatch to external channel — failure does NOT abort the operation
+        // The notification is always persisted for in-app delivery
         try
         {
-            if (channel == NotificationChannel.Email && !string.IsNullOrEmpty(dto.RecipientEmail))
-                await SendEmailAsync(dto.RecipientEmail, "", dto.Title, dto.Message);
+            if (channel == NotificationChannel.Email
+                && !string.IsNullOrEmpty(dto.RecipientEmail))
+            {
+                await SendEmailAsync(dto.RecipientEmail, "", dto.Title,
+                    BuildSimpleHtml(dto.Title, dto.Message));
+            }
 
-            if (channel == NotificationChannel.Sms && !string.IsNullOrEmpty(dto.RecipientPhone))
-                await SendSmsAsync(dto.RecipientPhone, dto.Message);
+            if (channel == NotificationChannel.Sms
+                && !string.IsNullOrEmpty(dto.RecipientPhone))
+            {
+                await SendSmsAsync(dto.RecipientPhone, $"[SkyBooker] {dto.Title}: {dto.Message}");
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "Channel dispatch failed for NotificationId={Id}, Channel={Channel}",
                 created.NotificationId, channel);
-            // Don't fail the whole operation if external channel fails
-            // Notification is still saved in DB for in-app delivery
         }
 
         _logger.LogInformation(
@@ -81,27 +89,29 @@ public class NotificationService : INotificationService
         return MapToDto(created);
     }
 
+    // ── Booking Confirmation (App + Email with PDF + SMS) ─────────────────────
+
     public async Task SendBookingConfirmationAsync(BookingConfirmationRequestDto dto)
     {
-        // 1 — Save in-app notification
+        // 1 — Persist in-app notification
         var notification = new Notification
         {
-            RecipientId = dto.RecipientId,
-            Type = NotificationType.BookingConfirmed,
-            Title = "Booking Confirmed!",
-            Message = $"Your booking {dto.PnrCode} for flight {dto.FlightNumber} " +
-                      $"({dto.Origin} → {dto.Destination}) on " +
-                      $"{dto.DepartureTime:dd MMM yyyy HH:mm} is confirmed. " +
-                      $"Total: ₹{dto.TotalFare:F2}",
-            Channel = NotificationChannel.App,
+            RecipientId      = dto.RecipientId,
+            Type             = NotificationType.BookingConfirmed,
+            Title            = "Booking Confirmed! ✈",
+            Message          = $"Your booking {dto.PnrCode} for flight {dto.FlightNumber} " +
+                               $"({dto.Origin} → {dto.Destination}) on " +
+                               $"{dto.DepartureTime:dd MMM yyyy HH:mm} is confirmed. " +
+                               $"Total: ₹{dto.TotalFare:F2}",
+            Channel          = NotificationChannel.App,
             RelatedBookingId = dto.BookingId,
-            IsRead = false,
-            SentAt = DateTime.UtcNow
+            IsRead           = false,
+            SentAt           = DateTime.UtcNow
         };
 
         await _notificationRepository.CreateAsync(notification);
 
-        // 2 — Send email with e-ticket PDF attachment via MailKit
+        // 2 — Email with e-ticket PDF attachment
         if (!string.IsNullOrEmpty(dto.RecipientEmail))
         {
             try
@@ -111,26 +121,28 @@ public class NotificationService : INotificationService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Email dispatch failed for BookingId={BookingId}", dto.BookingId);
+                    "Email failed for BookingId={BookingId}", dto.BookingId);
             }
         }
 
-        // 3 — Send SMS via Twilio
+        // 3 — SMS via Twilio
         if (!string.IsNullOrEmpty(dto.RecipientPhone))
         {
             try
             {
-                var smsMessage = $"SkyBooker: Booking confirmed! PNR: {dto.PnrCode}, " +
-                                 $"Flight: {dto.FlightNumber}, " +
-                                 $"{dto.Origin}→{dto.Destination}, " +
-                                 $"{dto.DepartureTime:dd MMM HH:mm}. " +
-                                 $"Amount: ₹{dto.TotalFare:F2}";
-                await SendSmsAsync(dto.RecipientPhone, smsMessage);
+                var sms = $"[SkyBooker] Booking Confirmed! ✈\n" +
+                          $"PNR: {dto.PnrCode}\n" +
+                          $"Flight: {dto.FlightNumber} | {dto.Origin}→{dto.Destination}\n" +
+                          $"Dep: {dto.DepartureTime:dd MMM yyyy HH:mm}\n" +
+                          $"Seat: {dto.SeatNumber}\n" +
+                          $"Total: ₹{dto.TotalFare:F2}";
+
+                await SendSmsAsync(dto.RecipientPhone, sms);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "SMS dispatch failed for BookingId={BookingId}", dto.BookingId);
+                    "SMS failed for BookingId={BookingId}", dto.BookingId);
             }
         }
 
@@ -138,6 +150,8 @@ public class NotificationService : INotificationService
             "Booking confirmation sent: PNR={Pnr}, RecipientId={RecipientId}",
             dto.PnrCode, dto.RecipientId);
     }
+
+    // ── Bulk Notification ─────────────────────────────────────────────────────
 
     public async Task<IList<NotificationResponseDto>> SendBulkAsync(
         SendBulkNotificationRequestDto dto)
@@ -148,21 +162,22 @@ public class NotificationService : INotificationService
         if (!Enum.TryParse<NotificationChannel>(dto.Channel, true, out var channel))
             channel = NotificationChannel.App;
 
-        var notifications = dto.RecipientIds.Select(recipientId => new Notification
-        {
-            RecipientId = recipientId,
-            Type = type,
-            Title = dto.Title,
-            Message = dto.Message,
-            Channel = channel,
-            RelatedBookingId = dto.RelatedBookingId,
-            IsRead = false,
-            SentAt = DateTime.UtcNow
-        }).ToList();
-
         var results = new List<NotificationResponseDto>();
-        foreach (var notification in notifications)
+
+        foreach (var recipientId in dto.RecipientIds)
         {
+            var notification = new Notification
+            {
+                RecipientId      = recipientId,
+                Type             = type,
+                Title            = dto.Title,
+                Message          = dto.Message,
+                Channel          = channel,
+                RelatedBookingId = dto.RelatedBookingId,
+                IsRead           = false,
+                SentAt           = DateTime.UtcNow
+            };
+
             var created = await _notificationRepository.CreateAsync(notification);
             results.Add(MapToDto(created));
         }
@@ -174,9 +189,12 @@ public class NotificationService : INotificationService
         return results;
     }
 
+    // ── CRUD Operations ───────────────────────────────────────────────────────
+
     public async Task<NotificationResponseDto> MarkAsReadAsync(int notificationId)
     {
-        var notification = await _notificationRepository.FindByNotificationIdAsync(notificationId)
+        var notification = await _notificationRepository
+            .FindByNotificationIdAsync(notificationId)
             ?? throw new KeyNotFoundException($"Notification {notificationId} not found.");
 
         notification.IsRead = true;
@@ -210,8 +228,7 @@ public class NotificationService : INotificationService
 
     public async Task DeleteNotificationAsync(int notificationId)
     {
-        var notification = await _notificationRepository
-            .FindByNotificationIdAsync(notificationId)
+        _ = await _notificationRepository.FindByNotificationIdAsync(notificationId)
             ?? throw new KeyNotFoundException($"Notification {notificationId} not found.");
 
         await _notificationRepository.DeleteByNotificationIdAsync(notificationId);
@@ -223,29 +240,32 @@ public class NotificationService : INotificationService
         return notifications.Select(MapToDto).ToList();
     }
 
+    // ── Email (MailKit) ───────────────────────────────────────────────────────
+
     public async Task SendEmailAsync(
         string toEmail, string toName, string subject, string body)
     {
-        var smtpHost = _configuration["Email:SmtpHost"] ?? string.Empty;
-        var smtpPort = _configuration.GetValue<int>("Email:SmtpPort", 587);
+        var smtpHost    = _configuration["Email:SmtpHost"]    ?? string.Empty;
+        var smtpPort    = _configuration.GetValue<int>("Email:SmtpPort", 587);
         var senderEmail = _configuration["Email:SenderEmail"] ?? string.Empty;
-        var senderName = _configuration["Email:SenderName"] ?? "SkyBooker";
-        var password = _configuration["Email:Password"] ?? string.Empty;
+        var senderName  = _configuration["Email:SenderName"]  ?? "SkyBooker";
+        var password    = _configuration["Email:Password"]    ?? string.Empty;
 
-        // Skip if not configured — for evaluation
-        if (string.IsNullOrEmpty(smtpHost) || string.IsNullOrEmpty(password)
-            || password == "YOUR_EMAIL_APP_PASSWORD")
+        // Skip gracefully when email is not yet configured (dev/eval)
+        if (string.IsNullOrEmpty(smtpHost) || password == "YOUR_EMAIL_APP_PASSWORD"
+            || string.IsNullOrEmpty(password))
         {
             _logger.LogWarning(
-                "Email not configured — skipping email dispatch to {Email}", toEmail);
+                "Email not configured — skipping dispatch to {Email}", toEmail);
             return;
         }
 
         var email = new MimeMessage();
         email.From.Add(new MailboxAddress(senderName, senderEmail));
-        email.To.Add(new MailboxAddress(toName, toEmail));
+        email.To.Add(new MailboxAddress(
+            string.IsNullOrEmpty(toName) ? toEmail : toName, toEmail));
         email.Subject = subject;
-        email.Body = new TextPart(TextFormat.Html) { Text = body };
+        email.Body    = new TextPart(TextFormat.Html) { Text = body };
 
         using var smtp = new SmtpClient();
         await smtp.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls);
@@ -256,64 +276,70 @@ public class NotificationService : INotificationService
         _logger.LogInformation("Email sent to {Email}: {Subject}", toEmail, subject);
     }
 
-    public Task SendSmsAsync(string toPhone, string message)
+    // ── SMS (Twilio) ──────────────────────────────────────────────────────────
+
+    // ✅ FIX: was using sync MessageResource.Create — now properly async
+    public async Task SendSmsAsync(string toPhone, string message)
     {
         var accountSid = _configuration["Twilio:AccountSid"] ?? string.Empty;
-        var authToken = _configuration["Twilio:AuthToken"] ?? string.Empty;
+        var authToken  = _configuration["Twilio:AuthToken"]  ?? string.Empty;
         var fromNumber = _configuration["Twilio:FromNumber"] ?? string.Empty;
 
-        // Skip if not configured — for evaluation
+        // Skip gracefully when Twilio is not yet configured (dev/eval)
         if (string.IsNullOrEmpty(accountSid)
             || accountSid == "YOUR_TWILIO_ACCOUNT_SID")
         {
             _logger.LogWarning(
                 "Twilio not configured — skipping SMS dispatch to {Phone}", toPhone);
-            return Task.CompletedTask;
+            return;
         }
 
         TwilioClient.Init(accountSid, authToken);
 
-        MessageResource.Create(
+        await MessageResource.CreateAsync(
             body: message,
             from: new Twilio.Types.PhoneNumber(fromNumber),
-            to: new Twilio.Types.PhoneNumber(toPhone)
+            to:   new Twilio.Types.PhoneNumber(toPhone)
         );
 
         _logger.LogInformation("SMS sent to {Phone}", toPhone);
-        return Task.CompletedTask;
     }
 
-    // ── Private Helpers ────────────────────────────────────────────────────────
+    // ── Private Helpers ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Sends the booking confirmation email with:
+    /// - Beautiful HTML body
+    /// - QuestPDF e-ticket attached as PDF
+    /// </summary>
     private async Task SendBookingConfirmationEmailAsync(BookingConfirmationRequestDto dto)
     {
-        var smtpHost = _configuration["Email:SmtpHost"] ?? string.Empty;
-        var smtpPort = _configuration.GetValue<int>("Email:SmtpPort", 587);
+        var smtpHost    = _configuration["Email:SmtpHost"]    ?? string.Empty;
+        var smtpPort    = _configuration.GetValue<int>("Email:SmtpPort", 587);
         var senderEmail = _configuration["Email:SenderEmail"] ?? string.Empty;
-        var senderName = _configuration["Email:SenderName"] ?? "SkyBooker";
-        var password = _configuration["Email:Password"] ?? string.Empty;
+        var senderName  = _configuration["Email:SenderName"]  ?? "SkyBooker";
+        var password    = _configuration["Email:Password"]    ?? string.Empty;
 
-        if (string.IsNullOrEmpty(smtpHost) || password == "YOUR_EMAIL_APP_PASSWORD")
+        if (string.IsNullOrEmpty(smtpHost) || password == "YOUR_EMAIL_APP_PASSWORD"
+            || string.IsNullOrEmpty(password))
         {
             _logger.LogWarning(
                 "Email not configured — skipping confirmation email for PNR={Pnr}", dto.PnrCode);
             return;
         }
 
-        // Generate e-ticket PDF using QuestPDF
         var pdfBytes = GenerateETicketPdf(dto);
 
         var email = new MimeMessage();
         email.From.Add(new MailboxAddress(senderName, senderEmail));
         email.To.Add(new MailboxAddress(dto.RecipientName, dto.RecipientEmail));
-        email.Subject = $"SkyBooker — Booking Confirmed! PNR: {dto.PnrCode}";
+        email.Subject = $"✈ Booking Confirmed! PNR: {dto.PnrCode} | SkyBooker";
 
         var builder = new BodyBuilder
         {
             HtmlBody = BuildBookingConfirmationHtml(dto)
         };
 
-        // Attach e-ticket PDF using MimeKit MimePart API
         builder.Attachments.Add(
             $"eticket_{dto.PnrCode}.pdf",
             pdfBytes,
@@ -328,10 +354,11 @@ public class NotificationService : INotificationService
         await smtp.DisconnectAsync(true);
 
         _logger.LogInformation(
-            "Booking confirmation email with e-ticket sent to {Email}, PNR={Pnr}",
+            "Booking confirmation email sent to {Email}, PNR={Pnr}",
             dto.RecipientEmail, dto.PnrCode);
     }
 
+    /// <summary>Generates a clean e-ticket PDF using QuestPDF</summary>
     private static byte[] GenerateETicketPdf(BookingConfirmationRequestDto dto)
     {
         return Document.Create(container =>
@@ -351,12 +378,12 @@ public class NotificationService : INotificationService
                             left.Item().Text("SkyBooker")
                                 .FontSize(26).Bold().FontColor(Colors.Blue.Darken2);
                             left.Item().Text("E-Ticket / Boarding Pass")
-                                .FontSize(13).FontColor(Colors.Grey.Darken1);
+                                .FontSize(12).FontColor(Colors.Grey.Darken1);
                         });
                         row.AutoItem().Column(right =>
                         {
-                            right.Item().AlignRight().Text("PNR")
-                                .FontSize(11).FontColor(Colors.Grey.Medium);
+                            right.Item().AlignRight()
+                                .Text("PNR").FontSize(10).FontColor(Colors.Grey.Medium);
                             right.Item().AlignRight().Text(dto.PnrCode)
                                 .FontSize(22).Bold().FontColor(Colors.Blue.Darken2);
                         });
@@ -366,44 +393,52 @@ public class NotificationService : INotificationService
 
                 page.Content().PaddingTop(20).Column(col =>
                 {
-                    // Passenger info
-                    col.Item().Background(Colors.Blue.Lighten5).Padding(12).Row(row =>
+                    // Passenger info bar
+                    col.Item().Background(Colors.Blue.Lighten5).Padding(14).Row(row =>
                     {
                         row.RelativeItem().Column(left =>
                         {
-                            left.Item().Text("Passenger").FontSize(10)
-                                .FontColor(Colors.Grey.Medium);
+                            left.Item().Text("Passenger")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
                             left.Item().Text(dto.RecipientName).Bold().FontSize(14);
                         });
+                        row.RelativeItem().Column(mid =>
+                        {
+                            mid.Item().Text("Seat")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                            mid.Item().Text(dto.SeatNumber).Bold().FontSize(14);
+                        });
                         row.RelativeItem().Column(right =>
                         {
-                            right.Item().Text("Seat").FontSize(10)
-                                .FontColor(Colors.Grey.Medium);
-                            right.Item().Text(dto.SeatNumber).Bold().FontSize(14);
+                            right.Item().Text("Flight")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                            right.Item().Text(dto.FlightNumber).Bold().FontSize(14);
                         });
                     });
 
-                    col.Item().PaddingTop(16).Row(row =>
+                    // Route
+                    col.Item().PaddingTop(20).Row(row =>
                     {
                         row.RelativeItem().Column(left =>
                         {
-                            left.Item().Text("FROM").FontSize(10)
+                            left.Item().Text("FROM").FontSize(9)
                                 .FontColor(Colors.Grey.Medium);
-                            left.Item().Text(dto.Origin).FontSize(24).Bold()
+                            left.Item().Text(dto.Origin).FontSize(28).Bold()
                                 .FontColor(Colors.Blue.Darken3);
                         });
-                        row.AutoItem().PaddingHorizontal(20).AlignMiddle()
-                            .Text("→").FontSize(20).FontColor(Colors.Grey.Medium);
+                        row.AutoItem().PaddingHorizontal(16).AlignMiddle()
+                            .Text("✈").FontSize(22).FontColor(Colors.Blue.Medium);
                         row.RelativeItem().Column(right =>
                         {
-                            right.Item().Text("TO").FontSize(10)
+                            right.Item().Text("TO").FontSize(9)
                                 .FontColor(Colors.Grey.Medium);
-                            right.Item().Text(dto.Destination).FontSize(24).Bold()
+                            right.Item().Text(dto.Destination).FontSize(28).Bold()
                                 .FontColor(Colors.Blue.Darken3);
                         });
                     });
 
-                    col.Item().PaddingTop(16).Table(table =>
+                    // Trip details table
+                    col.Item().PaddingTop(20).Table(table =>
                     {
                         table.ColumnsDefinition(cols =>
                         {
@@ -412,26 +447,25 @@ public class NotificationService : INotificationService
                             cols.RelativeColumn();
                         });
 
-                        table.Cell().Padding(8).Column(c =>
+                        table.Cell().Padding(10).Column(c =>
                         {
-                            c.Item().Text("Flight").FontSize(10)
-                                .FontColor(Colors.Grey.Medium);
-                            c.Item().Text(dto.FlightNumber).Bold();
-                        });
-                        table.Cell().Padding(8).Column(c =>
-                        {
-                            c.Item().Text("Departure").FontSize(10)
-                                .FontColor(Colors.Grey.Medium);
+                            c.Item().Text("Departure Date")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
                             c.Item().Text(dto.DepartureTime.ToString("dd MMM yyyy")).Bold();
-                            c.Item().Text(dto.DepartureTime.ToString("HH:mm")).Bold()
-                                .FontSize(16).FontColor(Colors.Blue.Darken2);
                         });
-                        table.Cell().Padding(8).Column(c =>
+                        table.Cell().Padding(10).Column(c =>
                         {
-                            c.Item().Text("Total Fare").FontSize(10)
-                                .FontColor(Colors.Grey.Medium);
+                            c.Item().Text("Departure Time")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
+                            c.Item().Text(dto.DepartureTime.ToString("HH:mm")).Bold()
+                                .FontSize(18).FontColor(Colors.Blue.Darken2);
+                        });
+                        table.Cell().Padding(10).Column(c =>
+                        {
+                            c.Item().Text("Total Fare")
+                                .FontSize(9).FontColor(Colors.Grey.Medium);
                             c.Item().Text($"₹{dto.TotalFare:F2}").Bold()
-                                .FontColor(Colors.Green.Darken3);
+                                .FontColor(Colors.Green.Darken3).FontSize(16);
                         });
                     });
 
@@ -439,7 +473,7 @@ public class NotificationService : INotificationService
                         .LineColor(Colors.Grey.Lighten2);
 
                     col.Item().PaddingTop(10).Background(Colors.Grey.Lighten4)
-                        .Padding(10).Text(
+                        .Padding(12).Text(
                             "Please arrive at the airport at least 2 hours before departure. " +
                             "This e-ticket is valid as your travel document. " +
                             "Web check-in opens 24 hours before departure.")
@@ -448,8 +482,8 @@ public class NotificationService : INotificationService
 
                 page.Footer().AlignCenter().Text(text =>
                 {
-                    text.Span("SkyBooker Platform • ").FontSize(9)
-                        .FontColor(Colors.Grey.Medium);
+                    text.Span("SkyBooker Platform  •  ")
+                        .FontSize(9).FontColor(Colors.Grey.Medium);
                     text.Span("Search. Book. Fly. Effortlessly.")
                         .FontSize(9).FontColor(Colors.Grey.Medium).Italic();
                 });
@@ -457,51 +491,121 @@ public class NotificationService : INotificationService
         }).GeneratePdf();
     }
 
-    private static string BuildBookingConfirmationHtml(BookingConfirmationRequestDto dto)
-    {
-        return $@"
-<html><body style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'>
-  <div style='background:#1a56db;padding:20px;text-align:center;'>
-    <h1 style='color:white;margin:0;'>SkyBooker</h1>
-    <p style='color:#b3d0ff;margin:5px 0 0;'>Booking Confirmed!</p>
-  </div>
-  <div style='padding:24px;background:#f9fafb;'>
-    <h2 style='color:#1a56db;'>Hi {dto.RecipientName},</h2>
-    <p>Your booking is confirmed. Here are your travel details:</p>
-    <div style='background:white;border-radius:8px;padding:20px;margin:16px 0;
-                border-left:4px solid #1a56db;'>
-      <table width='100%'>
-        <tr><td><b>PNR Code</b></td><td style='color:#1a56db;font-size:20px;font-weight:bold;'>{dto.PnrCode}</td></tr>
-        <tr><td><b>Flight</b></td><td>{dto.FlightNumber}</td></tr>
-        <tr><td><b>Route</b></td><td>{dto.Origin} → {dto.Destination}</td></tr>
-        <tr><td><b>Departure</b></td><td>{dto.DepartureTime:dd MMM yyyy HH:mm}</td></tr>
-        <tr><td><b>Seat</b></td><td>{dto.SeatNumber}</td></tr>
-        <tr><td><b>Total Fare</b></td><td style='color:#057a55;font-weight:bold;'>₹{dto.TotalFare:F2}</td></tr>
-      </table>
-    </div>
-    <p style='color:#6b7280;font-size:13px;'>
-      Your e-ticket is attached to this email as a PDF. 
-      Web check-in opens 24 hours before departure.
-    </p>
-  </div>
-  <div style='background:#1a56db;padding:12px;text-align:center;'>
-    <p style='color:#b3d0ff;margin:0;font-size:12px;'>
-      SkyBooker • Search. Book. Fly. Effortlessly.
-    </p>
-  </div>
-</body></html>";
-    }
+    /// <summary>Builds a polished HTML email body for booking confirmation</summary>
+    private static string BuildBookingConfirmationHtml(BookingConfirmationRequestDto dto) => $"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8"/>
+          <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+          <title>Booking Confirmed</title>
+        </head>
+        <body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+          <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;
+                      overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+            <!-- Header -->
+            <div style="background:#1d4ed8;padding:28px 40px;text-align:center;">
+              <div style="font-size:26px;font-weight:700;color:#fff;">✈ SkyBooker</div>
+              <div style="font-size:16px;color:#bfdbfe;margin-top:6px;">Booking Confirmed!</div>
+            </div>
+
+            <!-- Body -->
+            <div style="padding:32px 40px;">
+              <p style="color:#374151;font-size:16px;">Hi <strong>{dto.RecipientName}</strong>,</p>
+              <p style="color:#4b5563;font-size:15px;">
+                Your booking is confirmed. Your e-ticket is attached to this email as a PDF.
+              </p>
+
+              <!-- PNR Badge -->
+              <div style="background:#1d4ed8;border-radius:8px;padding:16px 24px;
+                          text-align:center;margin:20px 0;">
+                <div style="font-size:11px;color:#bfdbfe;letter-spacing:1px;">BOOKING REFERENCE</div>
+                <div style="font-size:26px;font-weight:700;color:#fff;
+                            letter-spacing:3px;margin-top:4px;">{dto.PnrCode}</div>
+              </div>
+
+              <!-- Route -->
+              <div style="text-align:center;padding:20px;background:#eff6ff;
+                          border-radius:8px;margin:16px 0;">
+                <span style="font-size:28px;font-weight:700;color:#1d4ed8;">{dto.Origin}</span>
+                <span style="font-size:18px;color:#93c5fd;margin:0 12px;">✈</span>
+                <span style="font-size:28px;font-weight:700;color:#1d4ed8;">{dto.Destination}</span>
+                <div style="font-size:12px;color:#6b7280;margin-top:4px;">{dto.FlightNumber}</div>
+              </div>
+
+              <!-- Details Table -->
+              <table width="100%" cellpadding="10" cellspacing="0"
+                     style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;
+                            border-collapse:separate;font-size:14px;">
+                <tr style="background:#f9fafb;">
+                  <td style="color:#6b7280;border-bottom:1px solid #e5e7eb;">Departure</td>
+                  <td style="font-weight:600;color:#111827;border-bottom:1px solid #e5e7eb;">
+                    {dto.DepartureTime:ddd, dd MMM yyyy · HH:mm}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="color:#6b7280;border-bottom:1px solid #e5e7eb;">Seat</td>
+                  <td style="font-weight:600;color:#111827;border-bottom:1px solid #e5e7eb;">
+                    {dto.SeatNumber}
+                  </td>
+                </tr>
+                <tr style="background:#f9fafb;">
+                  <td style="color:#6b7280;">Total Fare</td>
+                  <td style="font-weight:700;color:#059669;font-size:18px;">₹{dto.TotalFare:F2}</td>
+                </tr>
+              </table>
+
+              <p style="color:#6b7280;font-size:13px;margin-top:20px;">
+                ✅ Arrive at the airport at least <strong>2 hours</strong> before departure.<br/>
+                ✅ Web check-in opens <strong>24 hours</strong> before your flight.<br/>
+                ✅ Carry a valid photo ID and this booking reference.
+              </p>
+            </div>
+
+            <!-- Footer -->
+            <div style="background:#f9fafb;border-top:1px solid #e5e7eb;
+                        padding:20px 40px;text-align:center;">
+              <p style="color:#9ca3af;font-size:12px;margin:0;">
+                SkyBooker • Search. Book. Fly. Effortlessly.
+              </p>
+              <p style="color:#9ca3af;font-size:11px;margin:4px 0 0;">
+                This is an automated email. Please do not reply.
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """;
+
+    /// <summary>Simple HTML wrapper for generic notifications</summary>
+    private static string BuildSimpleHtml(string title, string message) => $"""
+        <!DOCTYPE html>
+        <html><body style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;
+                           margin:32px auto;background:#f9fafb;padding:24px;border-radius:8px;">
+          <div style="background:#1d4ed8;padding:16px 24px;border-radius:8px 8px 0 0;">
+            <span style="color:#fff;font-size:18px;font-weight:700;">✈ SkyBooker</span>
+          </div>
+          <div style="background:#fff;padding:24px;border:1px solid #e5e7eb;
+                      border-top:none;border-radius:0 0 8px 8px;">
+            <h2 style="color:#111827;margin:0 0 12px;">{title}</h2>
+            <p style="color:#4b5563;font-size:15px;line-height:1.6;">{message}</p>
+          </div>
+        </body></html>
+        """;
+
+    // ── Mapper ────────────────────────────────────────────────────────────────
 
     private static NotificationResponseDto MapToDto(Notification n) => new()
     {
-        NotificationId = n.NotificationId,
-        RecipientId = n.RecipientId,
-        Type = n.Type.ToString(),
-        Title = n.Title,
-        Message = n.Message,
-        Channel = n.Channel.ToString(),
+        NotificationId   = n.NotificationId,
+        RecipientId      = n.RecipientId,
+        Type             = n.Type.ToString(),
+        Title            = n.Title,
+        Message          = n.Message,
+        Channel          = n.Channel.ToString(),
         RelatedBookingId = n.RelatedBookingId,
-        IsRead = n.IsRead,
-        SentAt = n.SentAt
+        IsRead           = n.IsRead,
+        SentAt           = n.SentAt
     };
 }

@@ -14,6 +14,25 @@ var builder = WebApplication.CreateBuilder(args);
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
 
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+        policy.WithOrigins(
+                "http://localhost:4200",
+                "http://localhost:4201",
+                "http://localhost:5000",
+                "http://localhost:5001",
+                "http://localhost:5002",
+                "http://localhost:5003",
+                "http://localhost:5004",
+                "http://localhost:5005",
+                "http://localhost:5006",
+                "http://localhost:5007")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 // ─── Swagger UI ───────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -91,6 +110,7 @@ builder.Services.AddScoped<IPassengerRepository, PassengerRepository>();
 builder.Services.AddScoped<IPassengerService, PassengerService>();
 builder.Services.AddValidatorsFromAssemblyContaining<AddPassengerRequestValidator>();
 
+// ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
@@ -103,6 +123,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAll");        
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

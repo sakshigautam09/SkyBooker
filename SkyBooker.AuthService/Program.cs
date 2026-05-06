@@ -1,6 +1,7 @@
 using System.Text;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -9,15 +10,24 @@ using SkyBooker.AuthService.Repositories;
 using SkyBooker.AuthService.Services;
 using SkyBooker.AuthService.Validators;
 using SkyBooker.AuthService.Services.Redis;
-using StackExchange.Redis;
 using SkyBooker.AuthService.Middleware;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
 
-// ─── Swagger UI ───────────────────────────────────────────────────────────────
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+        policy.WithOrigins("http://localhost:4200")
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
+// ─── Swagger ─────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -28,19 +38,16 @@ builder.Services.AddSwaggerGen(c =>
         Description = "Authentication & User Management API for the SkyBooker platform"
     });
 
-    // Enable XML comments (field descriptions in Swagger UI)
     var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-    if (File.Exists(xmlPath))
-        c.IncludeXmlComments(xmlPath);
+    if (File.Exists(xmlPath)) c.IncludeXmlComments(xmlPath);
 
-    // JWT Bearer button in Swagger UI
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "Paste your JWT token here. Format: Bearer {token}",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http,  // Use Http type so Swagger adds "Bearer " prefix automatically
+        Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
@@ -50,11 +57,7 @@ builder.Services.AddSwaggerGen(c =>
         {
             new OpenApiSecurityScheme
             {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
             },
             Array.Empty<string>()
         }
@@ -65,7 +68,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ─── JWT Authentication ───────────────────────────────────────────────────────
+// ─── JWT ─────────────────────────────────────────────────────────────────────
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("Jwt:Secret is not configured.");
 
@@ -73,44 +76,58 @@ builder.Services
     .AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ValidateIssuer           = true,
+            ValidIssuer              = builder.Configuration["Jwt:Issuer"],
+            ValidateAudience         = true,
+            ValidAudience            = builder.Configuration["Jwt:Audience"],
+            ValidateLifetime         = true,
+            ClockSkew                = TimeSpan.Zero
         };
     });
 
-// ─── Google OAuth2 ────────────────────────────────────────────────────────────
-var googleClientId = builder.Configuration["Google:ClientId"];
+// ─── Google OAuth2 (optional) ─────────────────────────────────────────────────
+var googleClientId     = builder.Configuration["Google:ClientId"];
 var googleClientSecret = builder.Configuration["Google:ClientSecret"];
-
 if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret))
 {
     builder.Services.AddAuthentication()
         .AddGoogle(options =>
         {
-            options.ClientId = googleClientId;
+            options.ClientId     = googleClientId;
             options.ClientSecret = googleClientSecret;
         });
 }
 
 builder.Services.AddAuthorization();
 
-// ─── Redis ───────────────────────────────────────────────────────────────────
-var redisConnection = builder.Configuration.GetConnectionString("Redis")
-    ?? throw new InvalidOperationException("Redis connection string is not configured.");
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    ConnectionMultiplexer.Connect(redisConnection));
+// ─── Redis (fully optional) ───────────────────────────────────────────────────
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    try
+    {
+        var redisOptions = ConfigurationOptions.Parse(redisConnection);
+        redisOptions.ConnectTimeout      = 2000;
+        redisOptions.AbortOnConnectFail  = false;
+        var multiplexer = ConnectionMultiplexer.Connect(redisOptions);
+        if (multiplexer.IsConnected)
+            builder.Services.AddSingleton<IConnectionMultiplexer>(multiplexer);
+        else
+            Console.WriteLine("⚠️  Redis not reachable — running without token blacklisting.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️  Redis failed: {ex.Message} — running without token blacklisting.");
+    }
+}
 builder.Services.AddScoped<IRedisTokenService, RedisTokenService>();
 
 // ─── Application Services ─────────────────────────────────────────────────────
@@ -119,6 +136,21 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
 var app = builder.Build();
+
+// ─── Global Exception Handler ─────────────────────────────────────────────────
+app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
+{
+    var feature = ctx.Features.Get<IExceptionHandlerFeature>();
+    var ex = feature?.Error;
+    ctx.Response.StatusCode  = 500;
+    ctx.Response.ContentType = "application/json";
+    await ctx.Response.WriteAsJsonAsync(new
+    {
+        message = ex?.Message ?? "An unexpected error occurred.",
+        detail  = ex?.InnerException?.Message,
+        type    = ex?.GetType().Name
+    });
+}));
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();
@@ -130,6 +162,7 @@ app.UseSwaggerUI(c =>
     c.EnableDeepLinking();
 });
 
+app.UseCors("AllowAngular");
 app.UseMiddleware<TokenBlacklistMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
