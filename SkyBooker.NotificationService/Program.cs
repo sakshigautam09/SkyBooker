@@ -97,7 +97,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:5002",
                 "http://localhost:5003",
                 "http://localhost:5004",
-                "http://localhost:5005")
+                "http://localhost:5005",
+                "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -114,10 +115,15 @@ builder.Services.AddMassTransit(x =>
 
     x.UsingRabbitMq((ctx, cfg) =>
     {
-        cfg.Host(builder.Configuration["RabbitMQ:Host"] ?? "localhost", "/", h =>
+        var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
+        var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+        var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+        var vhost    = builder.Configuration["RabbitMQ:VHost"]    ?? "/";
+
+        cfg.Host(host, vhost, h =>
         {
-            h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
-            h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+            h.Username(username);
+            h.Password(password);
         });
 
         // Queue: notification-service-booking-confirmed

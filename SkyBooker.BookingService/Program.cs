@@ -21,7 +21,7 @@ builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -114,8 +114,9 @@ builder.Services.AddMassTransit(x =>
         var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
         var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
         var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
-
-        cfg.Host(host, "/", h =>
+        var vhost = builder.Configuration["RabbitMQ:VHost"] ?? "/";
+        
+        cfg.Host(host, vhost, h =>
         {
             h.Username(username);
             h.Password(password);
@@ -140,6 +141,12 @@ builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IBookingEventPublisher, BookingEventPublisher>();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BookingDbContext>();
+    db.Database.Migrate();
+}
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();

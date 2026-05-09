@@ -99,6 +99,12 @@ builder.Services.AddScoped<IAirlineService, AirlineService>();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AirlineDbContext>();
+    db.Database.Migrate();
+}
+
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();
 app.UseSwaggerUI(c =>
