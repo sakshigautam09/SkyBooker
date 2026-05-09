@@ -22,7 +22,7 @@ builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -151,6 +151,12 @@ app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
         type    = ex?.GetType().Name
     });
 }));
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    db.Database.Migrate();
+}
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();

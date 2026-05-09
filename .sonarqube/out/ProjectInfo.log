@@ -1,0 +1,33 @@
+Product projects
+---------------------------------------
+D:\SkyBooker\SkyBooker.BookingService\SkyBooker.BookingService.csproj
+D:\SkyBooker\SkyBooker.FlightService\SkyBooker.FlightService.csproj
+D:\SkyBooker\SkyBooker.PaymentService\SkyBooker.PaymentService.csproj
+D:\SkyBooker\SkyBooker.PassengerService\SkyBooker.PassengerService.csproj
+D:\SkyBooker\SkyBooker.SeatService\SkyBooker.SeatService.csproj
+D:\SkyBooker\SkyBooker.AuthService\SkyBooker.AuthService.csproj
+D:\SkyBooker\SkyBooker.ApiGateway\SkyBooker.ApiGateway.csproj
+D:\SkyBooker\SkyBooker.AirlineService\SkyBooker.AirlineService.csproj
+
+
+Test projects
+---------------------------------------
+D:\SkyBooker\SkyBooker.NotificationService\SkyBooker.NotificationService.csproj
+D:\SkyBooker\SkyBooker.Tests\SkyBooker.Tests.csproj
+
+
+Invalid projects
+---------------------------------------
+{none}
+
+
+Skipped projects
+---------------------------------------
+{none}
+
+
+Excluded projects
+---------------------------------------
+{none}
+
+

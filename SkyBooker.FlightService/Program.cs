@@ -17,7 +17,7 @@ builder.Services.AddControllers();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -102,6 +102,12 @@ builder.Services.AddScoped<IFlightRepository, FlightRepository>();
 builder.Services.AddScoped<IFlightService, FlightService>();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<FlightDbContext>();
+    db.Database.Migrate();
+}
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();

@@ -31,7 +31,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:5004",
                 "http://localhost:5005",
                 "http://localhost:5006",
-                "http://localhost:5007")
+                "http://localhost:5007",
+                "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -82,9 +83,25 @@ builder.Services.AddDbContext<SeatDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ─── Redis ───────────────────────────────────────────────────────────────────
-var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    ConnectionMultiplexer.Connect(redisConnection));
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    try
+    {
+        var options = ConfigurationOptions.Parse(redisConnection);
+        options.AbortOnConnectFail = false;
+        options.ConnectTimeout = 3000;
+        var mux = ConnectionMultiplexer.Connect(options);
+        if (mux.IsConnected)
+            builder.Services.AddSingleton<IConnectionMultiplexer>(mux);
+        else
+            Console.WriteLine("⚠️ Redis not connected - seat hold via DB only");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"⚠️ Redis failed: {ex.Message}");
+    }
+}
 builder.Services.AddScoped<ISeatHoldRedisService, SeatHoldRedisService>();
 
 // ─── JWT Authentication ───────────────────────────────────────────────────────
@@ -126,8 +143,9 @@ builder.Services.AddMassTransit(x =>
         var host     = builder.Configuration["RabbitMQ:Host"]     ?? "localhost";
         var username = builder.Configuration["RabbitMQ:Username"] ?? "guest";
         var password = builder.Configuration["RabbitMQ:Password"] ?? "guest";
-
-        cfg.Host(host, "/", h =>
+        var vhost = builder.Configuration["RabbitMQ:VHost"] ?? "/";
+        
+        cfg.Host(host, vhost, h =>
         {
             h.Username(username);
             h.Password(password);
@@ -155,6 +173,12 @@ builder.Services.AddHostedService<SeatHoldExpiryService>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<SeatDbContext>();
+    db.Database.Migrate();
+}
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();

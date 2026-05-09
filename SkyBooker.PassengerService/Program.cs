@@ -28,7 +28,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:5004",
                 "http://localhost:5005",
                 "http://localhost:5006",
-                "http://localhost:5007")
+                "http://localhost:5007", 
+                "https://skybooker-frontend.onrender.com")
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
@@ -112,6 +113,12 @@ builder.Services.AddValidatorsFromAssemblyContaining<AddPassengerRequestValidato
 
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<PassengerDbContext>();
+    db.Database.Migrate();
+}
 
 // ─── Middleware Pipeline ──────────────────────────────────────────────────────
 app.UseSwagger();

@@ -1,0 +1,13 @@
+<
+3D:\SkyBooker\SkyBooker.Tests\AirlineServiceTests.csutf-89
+0D:\SkyBooker\SkyBooker.Tests\AuthServiceTests.csutf-8<
+3D:\SkyBooker\SkyBooker.Tests\BookingServiceTests.csutf-8;
+2D:\SkyBooker\SkyBooker.Tests\FlightServiceTests.csutf-8A
+8D:\SkyBooker\SkyBooker.Tests\NotificationServiceTests.csutf-8>
+5D:\SkyBooker\SkyBooker.Tests\PassengerServiceTests.csutf-8<
+3D:\SkyBooker\SkyBooker.Tests\PaymentServiceTests.csutf-89
+0D:\SkyBooker\SkyBooker.Tests\SeatServiceTests.csutf-8|
+qC:\Users\asus\.nuget\packages\microsoft.net.test.sdk\17.9.0\build\netcoreapp3.1\Microsoft.NET.Test.Sdk.Program.csutf-8Z
+OD:\SkyBooker\SkyBooker.Tests\obj\Debug\net8.0\SkyBooker.Tests.GlobalUsings.g.csutf-8g
+\D:\SkyBooker\SkyBooker.Tests\obj\Debug\net8.0\.NETCoreApp,Version=v8.0.AssemblyAttributes.csutf-8X
+MD:\SkyBooker\SkyBooker.Tests\obj\Debug\net8.0\SkyBooker.Tests.AssemblyInfo.csutf-8

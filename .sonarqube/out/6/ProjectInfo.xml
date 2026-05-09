@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ProjectInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.sonarsource.com/msbuild/integration/2015/1">
+  <ProjectName>SkyBooker.AuthService</ProjectName>
+  <ProjectLanguage>C#</ProjectLanguage>
+  <ProjectType>Product</ProjectType>
+  <ProjectGuid>ec4cb51c-af15-40ee-b683-ec427a7676e6</ProjectGuid>
+  <FullPath>D:\SkyBooker\SkyBooker.AuthService\SkyBooker.AuthService.csproj</FullPath>
+  <IsExcluded>false</IsExcluded>
+  <AnalysisResultFiles>
+    <AnalysisResultFile Id="FilesToAnalyze" Location="D:\SkyBooker\.sonarqube\conf\6\FilesToAnalyze.txt" />
+  </AnalysisResultFiles>
+  <AnalysisSettings>
+    <Property Name="sonar.cs.roslyn.reportFilePaths">D:\SkyBooker\.sonarqube\out\6\Issues.json</Property>
+    <Property Name="sonar.cs.analyzer.projectOutPaths">D:\SkyBooker\.sonarqube\out\6</Property>
+    <Property Name="sonar.cs.scanner.telemetry">D:\SkyBooker\.sonarqube\out\6\Telemetry.json</Property>
+  </AnalysisSettings>
+  <Configuration>Debug</Configuration>
+  <Platform>AnyCPU</Platform>
+  <TargetFramework>net8.0</TargetFramework>
+</ProjectInfo>

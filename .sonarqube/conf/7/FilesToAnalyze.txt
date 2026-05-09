@@ -1,0 +1,9 @@
+﻿D:\SkyBooker\SkyBooker.ApiGateway\Program.cs
+D:\SkyBooker\SkyBooker.ApiGateway\obj\Debug\net8.0\SkyBooker.ApiGateway.GlobalUsings.g.cs
+D:\SkyBooker\SkyBooker.ApiGateway\obj\Debug\net8.0\.NETCoreApp,Version=v8.0.AssemblyAttributes.cs
+D:\SkyBooker\SkyBooker.ApiGateway\obj\Debug\net8.0\SkyBooker.ApiGateway.AssemblyInfo.cs
+D:\SkyBooker\SkyBooker.ApiGateway\obj\Debug\net8.0\SkyBooker.ApiGateway.MvcApplicationPartsAssemblyInfo.cs
+D:\SkyBooker\SkyBooker.ApiGateway\appsettings.Development.json
+D:\SkyBooker\SkyBooker.ApiGateway\appsettings.json
+D:\SkyBooker\SkyBooker.ApiGateway\SkyBooker.ApiGateway.http
+D:\SkyBooker\SkyBooker.ApiGateway\Properties\launchSettings.json
