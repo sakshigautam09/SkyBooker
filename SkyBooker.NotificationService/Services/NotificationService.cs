@@ -11,6 +11,8 @@ using SkyBooker.NotificationService.Enums;
 using SkyBooker.NotificationService.Repositories;
 using Twilio;
 using Twilio.Rest.Api.V2010.Account;
+using SendGrid;
+using SendGrid.Helpers.Mail;
 
 namespace SkyBooker.NotificationService.Services;
 
@@ -314,48 +316,51 @@ public class NotificationService : INotificationService
     /// </summary>
     private async Task SendBookingConfirmationEmailAsync(BookingConfirmationRequestDto dto)
     {
-        var smtpHost    = _configuration["Email:SmtpHost"]    ?? string.Empty;
-        var smtpPort    = _configuration.GetValue<int>("Email:SmtpPort", 587);
+        var apiKey      = _configuration["SendGrid:ApiKey"] ?? string.Empty;
         var senderEmail = _configuration["Email:SenderEmail"] ?? string.Empty;
-        var senderName  = _configuration["Email:SenderName"]  ?? "SkyBooker";
-        var password    = _configuration["Email:Password"]    ?? string.Empty;
+        var senderName  = _configuration["Email:SenderName"] ?? "SkyBooker";
 
-        if (string.IsNullOrEmpty(smtpHost) || password == "YOUR_EMAIL_APP_PASSWORD"
-            || string.IsNullOrEmpty(password))
+        if (string.IsNullOrEmpty(apiKey))
         {
             _logger.LogWarning(
-                "Email not configured — skipping confirmation email for PNR={Pnr}", dto.PnrCode);
+                "SendGrid not configured — skipping confirmation email for PNR={Pnr}", dto.PnrCode);
             return;
         }
 
         var pdfBytes = GenerateETicketPdf(dto);
 
-        var email = new MimeMessage();
-        email.From.Add(new MailboxAddress(senderName, senderEmail));
-        email.To.Add(new MailboxAddress(dto.RecipientName, dto.RecipientEmail));
-        email.Subject = $"✈ Booking Confirmed! PNR: {dto.PnrCode} | SkyBooker";
+        var client  = new SendGridClient(apiKey);
+        var from    = new SendGrid.Helpers.Mail.EmailAddress(senderEmail, senderName);
+        var to      = new SendGrid.Helpers.Mail.EmailAddress(dto.RecipientEmail, dto.RecipientName);
+        var subject = $"✈ Booking Confirmed! PNR: {dto.PnrCode} | SkyBooker";
+        var htmlContent = BuildBookingConfirmationHtml(dto);
 
-        var builder = new BodyBuilder
+        var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent: null, htmlContent);
+
+        // Attach PDF e-ticket
+        var pdfBase64 = Convert.ToBase64String(pdfBytes);
+        msg.AddAttachment(
+            filename:    $"eticket_{dto.PnrCode}.pdf",
+            base64Content: pdfBase64,
+            type:        "application/pdf",
+            disposition: "attachment"
+        );
+
+        var response = await client.SendEmailAsync(msg);
+
+        if ((int)response.StatusCode >= 200 && (int)response.StatusCode < 300)
         {
-            HtmlBody = BuildBookingConfirmationHtml(dto)
-        };
-
-        builder.Attachments.Add(
-            $"eticket_{dto.PnrCode}.pdf",
-            pdfBytes,
-            new ContentType("application", "pdf"));
-
-        email.Body = builder.ToMessageBody();
-
-        using var smtp = new SmtpClient();
-        await smtp.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.SslOnConnect);
-        await smtp.AuthenticateAsync(senderEmail, password);
-        await smtp.SendAsync(email);
-        await smtp.DisconnectAsync(true);
-
-        _logger.LogInformation(
-            "Booking confirmation email sent to {Email}, PNR={Pnr}",
-            dto.RecipientEmail, dto.PnrCode);
+            _logger.LogInformation(
+                "Booking confirmation email sent to {Email}, PNR={Pnr}",
+                dto.RecipientEmail, dto.PnrCode);
+        }
+        else
+        {
+            var body = await response.Body.ReadAsStringAsync();
+            _logger.LogWarning(
+                "SendGrid failed for PNR={Pnr}, Status={Status}, Body={Body}",
+                dto.PnrCode, response.StatusCode, body);
+        }
     }
 
     /// <summary>Generates a clean e-ticket PDF using QuestPDF</summary>
