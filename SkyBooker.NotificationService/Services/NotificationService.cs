@@ -348,7 +348,7 @@ public class NotificationService : INotificationService
         email.Body = builder.ToMessageBody();
 
         using var smtp = new SmtpClient();
-        await smtp.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls);
+        await smtp.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.SslOnConnect);
         await smtp.AuthenticateAsync(senderEmail, password);
         await smtp.SendAsync(email);
         await smtp.DisconnectAsync(true);
