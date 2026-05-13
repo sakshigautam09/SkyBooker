@@ -58,6 +58,29 @@ public class PaymentController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Simulate payment success for evaluation/dev — marks payment as Paid
+    /// and notifies Booking Service to set status to Confirmed (no Razorpay webhook needed)
+    /// </summary>
+    [HttpPost("{paymentId}/simulate-success")]
+    [Authorize]
+    public async Task<IActionResult> SimulateSuccess(string paymentId)
+    {
+        try
+        {
+            var result = await _paymentService.SimulatePaymentSuccessAsync(paymentId);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     /// <summary>Initiate a refund for a paid payment</summary>
     [HttpPost("{paymentId}/refund")]
     [Authorize]
