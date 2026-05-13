@@ -124,7 +124,7 @@ public class BookingController : ControllerBase
 
     /// <summary>Update booking status — called by Payment Service after webhook</summary>
     [HttpPut("{bookingId}/status")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<IActionResult> UpdateStatus(
         string bookingId, [FromBody] UpdateBookingStatusDto dto)
     {
