@@ -45,7 +45,6 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Payment already completed for this booking.");
 
         // Simulate Razorpay order creation
-        // In production: call Razorpay SDK to create order and get orderId
         var gatewayOrderId = $"order_{Guid.NewGuid().ToString("N")[..16].ToUpper()}";
 
         var payment = new Payment
@@ -86,7 +85,6 @@ public class PaymentService : IPaymentService
             ?? throw new KeyNotFoundException($"Payment {dto.PaymentId} not found.");
 
         // HMAC signature verification
-        // In production: verify Razorpay webhook signature
         var isValidSignature = VerifyHmacSignature(
             dto.GatewayOrderId, dto.TransactionId, dto.RazorpaySignature);
 
@@ -119,6 +117,34 @@ public class PaymentService : IPaymentService
         }
 
         var updated = await _paymentRepository.UpdateAsync(payment);
+        return MapToDto(updated);
+    }
+
+    // ── NEW: Simulate payment success for evaluation/dev (no real Razorpay webhook needed) ──
+    public async Task<PaymentResponseDto> SimulatePaymentSuccessAsync(string paymentId)
+    {
+        var payment = await _paymentRepository.FindByPaymentIdAsync(paymentId)
+            ?? throw new KeyNotFoundException($"Payment {paymentId} not found.");
+
+        if (payment.Status == PaymentStatus.Paid)
+            throw new InvalidOperationException("Payment is already marked as paid.");
+
+        var fakeTransactionId = $"sim_txn_{Guid.NewGuid().ToString("N")[..12].ToUpper()}";
+
+        payment.Status = PaymentStatus.Paid;
+        payment.TransactionId = fakeTransactionId;
+        payment.GatewayResponse = "Simulated payment success";
+        payment.PaidAt = DateTime.UtcNow;
+
+        _logger.LogInformation(
+            "Simulated payment success: PaymentId={PaymentId}, BookingId={BookingId}",
+            paymentId, payment.BookingId);
+
+        var updated = await _paymentRepository.UpdateAsync(payment);
+
+        // Notify BookingService → sets booking status to Confirmed
+        await NotifyBookingServiceAsync(payment.BookingId, "Confirmed", payment.PaymentId);
+
         return MapToDto(updated);
     }
 
@@ -204,7 +230,6 @@ public class PaymentService : IPaymentService
 
     private bool VerifyHmacSignature(string orderId, string transactionId, string signature)
     {
-        // In development/evaluation mode — skip strict verification if no real keys
         var keySecret = _configuration["Razorpay:KeySecret"] ?? string.Empty;
 
         if (string.IsNullOrEmpty(keySecret) || keySecret == "YOUR_RAZORPAY_KEY_SECRET")
@@ -213,7 +238,6 @@ public class PaymentService : IPaymentService
             return true;
         }
 
-        // Production HMAC-SHA256 verification
         var payload = $"{orderId}|{transactionId}";
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(keySecret));
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
@@ -304,7 +328,6 @@ public class PaymentService : IPaymentService
                             cols.RelativeColumn(2);
                         });
 
-                        // Header
                         table.Header(header =>
                         {
                             header.Cell().Background(Colors.Blue.Darken2)
@@ -313,7 +336,6 @@ public class PaymentService : IPaymentService
                                 .Padding(8).Text("Amount").Bold().FontColor(Colors.White);
                         });
 
-                        // Rows
                         table.Cell().Padding(8).Text($"Booking ID: {payment.BookingId[..8]}...");
                         table.Cell().Padding(8).Text($"{payment.Currency} {payment.Amount:F2}");
 

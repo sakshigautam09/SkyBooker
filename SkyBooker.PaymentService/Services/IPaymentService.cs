@@ -7,6 +7,7 @@ public interface IPaymentService
 {
     Task<InitiatePaymentResponseDto> InitiatePaymentAsync(InitiatePaymentRequestDto dto);
     Task<PaymentResponseDto> ProcessPaymentAsync(WebhookPayloadDto dto);
+    Task<PaymentResponseDto> SimulatePaymentSuccessAsync(string paymentId);  // ← ADDED
     Task<PaymentResponseDto?> GetPaymentByBookingAsync(string bookingId);
     Task<IList<PaymentResponseDto>> GetPaymentsByUserAsync(int userId);
     Task<PaymentResponseDto?> GetPaymentStatusAsync(string paymentId);

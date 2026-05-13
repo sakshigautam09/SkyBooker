@@ -37,11 +37,9 @@ public class BookingService : IBookingService
         if (!Enum.TryParse<TripType>(dto.TripType, true, out var tripType))
             throw new ArgumentException($"Invalid trip type: {dto.TripType}. Must be OneWay or RoundTrip.");
 
-        // ReturnFlightId is required for RoundTrip, must be null for OneWay
         if (tripType == TripType.RoundTrip && dto.ReturnFlightId == null)
             throw new ArgumentException("ReturnFlightId is required for RoundTrip bookings.");
 
-        // For OneWay, always clear returnFlightId even if user sent one by mistake
         if (tripType == TripType.OneWay)
             dto.ReturnFlightId = null;
 
@@ -78,7 +76,6 @@ public class BookingService : IBookingService
             BookedAt = DateTime.UtcNow
         };
 
-        // EF Core transaction — atomically persist booking
         await using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
@@ -155,6 +152,11 @@ public class BookingService : IBookingService
             booking.PaymentId = dto.PaymentId;
 
         var updated = await _bookingRepository.UpdateAsync(booking);
+
+        _logger.LogInformation(
+            "Booking status updated: BookingId={BookingId}, NewStatus={Status}",
+            bookingId, newStatus);
+
         return MapToDto(updated);
     }
 
@@ -166,7 +168,6 @@ public class BookingService : IBookingService
         var baseFare = dto.BasePrice * dto.PassengerCount;
         var taxes = baseFare * (decimal)taxRate;
 
-        // Ancillary: extra baggage + meal surcharge
         var baggageCost = dto.LuggageKg > 15
             ? (dto.LuggageKg - 15) * (decimal)baggageRate
             : 0;
@@ -215,7 +216,6 @@ public class BookingService : IBookingService
     public async Task<IList<BookingResponseDto>> GetUpcomingBookingsAsync(int userId)
     {
         // Upcoming = Pending (awaiting payment) + Confirmed (paid)
-        // Excludes Cancelled, Completed, NoShow
         var confirmed = await _bookingRepository.FindByUserIdAndStatusAsync(
             userId, BookingStatus.Confirmed.ToString());
 
@@ -237,7 +237,6 @@ public class BookingService : IBookingService
 
         do
         {
-            // 6-char alphanumeric from Guid — exactly as specified in case study
             pnr = Guid.NewGuid().ToString("N")[..6].ToUpper();
             attempts++;
 
